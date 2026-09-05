@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  />
+  <meta name="theme-color" content="#000000" />
+  <title>AR Washing Machine - Auto Camera</title>
+
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/3.4.8/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    #statusPanel {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+      width: min(92vw, 460px);
+      padding: 11px 14px;
+      border-radius: 14px;
+      background: rgba(0, 0, 0, 0.76);
+      color: #fff;
+      text-align: center;
+      backdrop-filter: blur(6px);
+      pointer-events: none;
+    }
+
+    #statusTitle {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    #cameraStatus {
+      font-size: 13px;
+      line-height: 1.4;
+      color: #ffd166;
+    }
+
+    #speedReadout {
+      margin-top: 5px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    #cameraFallback {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.86);
+    }
+
+    #cameraFallbackCard {
+      width: min(92vw, 430px);
+      padding: 22px;
+      border-radius: 18px;
+      background: #fff;
+      color: #111;
+      text-align: center;
+    }
+
+    #cameraFallbackCard h2 {
+      margin: 0 0 10px;
+      font-size: 20px;
+    }
+
+    #cameraFallbackCard p {
+      margin: 0 0 15px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    #openCameraBtn {
+      width: 100%;
+      min-height: 52px;
+      border: 0;
+      border-radius: 12px;
+      background: #111;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    #errorText {
+      margin-top: 12px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #b42318;
+      word-break: break-word;
+    }
+
+    .hint {
+      position: fixed;
+      left: 50%;
+      bottom: 88px;
+      transform: translateX(-50%);
+      z-index: 9998;
+      width: min(92vw, 500px);
+      color: #fff;
+      font-size: 12px;
+      text-align: center;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95);
+      pointer-events: none;
+    }
+
+    .controls {
+      position: fixed;
+      left: 50%;
+      bottom: max(16px, env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      z-index: 9999;
+      display: flex;
+      justify-content: center;
+      gap: 7px;
+      width: min(96vw, 520px);
+      padding: 9px;
+      border-radius: 16px;
+      background: rgba(0, 0, 0, 0.76);
+      backdrop-filter: blur(6px);
+    }
+
+    .controls button {
+      min-width: 72px;
+      min-height: 48px;
+      padding: 9px 11px;
+      border: 0;
+      border-radius: 11px;
+      background: #fff;
+      color: #111;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .controls button:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+
+    #stopBtn {
+      background: #ff4d4f;
+      color: #fff;
+    }
+
+    #startBtn {
+      background: #22c55e;
+      color: #fff;
+    }
+  </style>
+
+  <script>
+    AFRAME.registerComponent("spin-drum", {
+      schema: {
+        rpm: { type: "number", default: 0 }
+      },
+
+      init: function () {
+        this.angle = 0;
+      },
+
+      tick: function (time, delta) {
+        if (!delta || this.data.rpm === 0) return;
+
+        const degreesPerSecond = (this.data.rpm / 60) * 360;
+        this.angle =
+          (this.angle + degreesPerSecond * (delta / 1000)) % 360;
+
+        this.el.setAttribute("rotation", {
+          x: 0,
+          y: this.angle,
+          z: 0
+        });
+      }
+    });
+  </script>
+</head>
+
+<body>
+  <div id="statusPanel">
+    <div id="statusTitle">AR Washing Machine</div>
+    <div id="cameraStatus">กำลังขอสิทธิ์และเปิดกล้องอัตโนมัติ...</div>
+    <div id="speedReadout">400 RPM</div>
+  </div>
+
+  <div id="cameraFallback">
+    <div id="cameraFallbackCard">
+      <h2>ต้องอนุญาตใช้กล้อง</h2>
+      <p id="fallbackMessage">
+        ระบบพยายามเปิดกล้องอัตโนมัติแล้ว แต่เบราว์เซอร์ต้องการให้กดอนุญาตหรือกดปุ่มเพื่อเริ่มกล้อง
+      </p>
+      <button id="openCameraBtn">เปิดกล้อง AR</button>
+      <div id="errorText"></div>
+    </div>
+  </div>
+
+  <div class="hint">
+    หันกล้องไปที่ Hiro Marker • ความเร็ว 0–1,200 RPM
+  </div>
+
+  <div class="controls">
+    <button id="slowerBtn" disabled>− ช้าลง</button>
+    <button id="stopBtn" disabled>หยุด</button>
+    <button id="startBtn" disabled>เริ่ม</button>
+    <button id="fasterBtn" disabled>+ เร็วขึ้น</button>
+  </div>
+
+  <!--
+    สำคัญ:
+    ไม่ใส่ arjs ตั้งแต่แรก เพื่อให้โค้ด preflight ขอ permission ก่อน
+    จากนั้นจึงเพิ่ม arjs="sourceType: webcam; ..." แบบ dynamic
+  -->
+  <a-scene
+    id="arScene"
+    embedded
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    renderer="antialias: true; alpha: true;"
+  >
+    <a-marker
+      id="hiroMarker"
+      preset="hiro"
+      emitevents="true"
+      smooth="true"
+      smoothCount="5"
+      smoothTolerance="0.01"
+      smoothThreshold="2"
+    >
+      <a-entity
+        id="washingMachine"
+        position="0 0 0"
+        rotation="0 0 0"
+        scale="0.9 0.9 0.9"
+      >
+        <!-- ฐาน -->
+        <a-cylinder
+          position="0 0.025 0"
+          radius="0.48"
+          height="0.03"
+          color="#111111"
+          opacity="0.35"
+        ></a-cylinder>
+
+        <!-- ตัวเครื่อง -->
+        <a-box
+          position="0 0.62 0"
+          width="0.82"
+          height="1.12"
+          depth="0.62"
+          color="#f5f5f5"
+          material="metalness: 0.15; roughness: 0.5"
+        ></a-box>
+
+        <!-- แผงควบคุม -->
+        <a-box
+          position="0 1.02 0.325"
+          width="0.74"
+          height="0.20"
+          depth="0.055"
+          color="#e3e3e3"
+        ></a-box>
+
+        <a-box
+          position="0.16 1.02 0.358"
+          width="0.25"
+          height="0.09"
+          depth="0.015"
+          color="#202a32"
+        ></a-box>
+
+        <a-cylinder
+          position="-0.20 1.02 0.365"
+          rotation="90 0 0"
+          radius="0.055"
+          height="0.025"
+          color="#555555"
+        ></a-cylinder>
+
+        <!-- ขอบประตู -->
+        <a-torus
+          position="0 0.62 0.335"
+          rotation="90 0 0"
+          radius="0.275"
+          radius-tubular="0.045"
+          color="#a8adb3"
+          material="metalness: 0.55; roughness: 0.28"
+        ></a-torus>
+
+        <!-- กระจก -->
+        <a-circle
+          position="0 0.62 0.384"
+          radius="0.235"
+          color="#182631"
+          opacity="0.72"
+          material="transparent: true; side: double"
+        ></a-circle>
+
+        <!-- ถังซัก -->
+        <a-entity position="0 0.62 0.39" rotation="90 0 0">
+          <a-cylinder
+            id="drum"
+            spin-drum="rpm: 400"
+            radius="0.205"
+            height="0.045"
+            segments-radial="32"
+            color="#c9d0d6"
+            opacity="0.88"
+            material="metalness: 0.65; roughness: 0.3; transparent: true"
+          >
+            <a-box
+              position="0 0.027 0"
+              width="0.32"
+              height="0.012"
+              depth="0.035"
+              color="#59636d"
+            ></a-box>
+
+            <a-box
+              position="0 0.028 0"
+              rotation="0 60 0"
+              width="0.32"
+              height="0.012"
+              depth="0.035"
+              color="#59636d"
+            ></a-box>
+
+            <a-box
+              position="0 0.029 0"
+              rotation="0 120 0"
+              width="0.32"
+              height="0.012"
+              depth="0.035"
+              color="#59636d"
+            ></a-box>
+          </a-cylinder>
+        </a-entity>
+
+        <!-- ขา -->
+        <a-box position="-0.30 0.075 0.19" width="0.12" height="0.08" depth="0.12" color="#303030"></a-box>
+        <a-box position="0.30 0.075 0.19" width="0.12" height="0.08" depth="0.12" color="#303030"></a-box>
+        <a-box position="-0.30 0.075 -0.19" width="0.12" height="0.08" depth="0.12" color="#303030"></a-box>
+        <a-box position="0.30 0.075 -0.19" width="0.12" height="0.08" depth="0.12" color="#303030"></a-box>
+      </a-entity>
+    </a-marker>
+
+    <a-entity camera></a-entity>
+  </a-scene>
+
+  <script>
+    (() => {
+      const scene = document.querySelector("#arScene");
+      const marker = document.querySelector("#hiroMarker");
+      const drum = document.querySelector("#drum");
+
+      const cameraStatus = document.querySelector("#cameraStatus");
+      const speedReadout = document.querySelector("#speedReadout");
+
+      const fallback = document.querySelector("#cameraFallback");
+      const fallbackMessage = document.querySelector("#fallbackMessage");
+      const openCameraBtn = document.querySelector("#openCameraBtn");
+      const errorText = document.querySelector("#errorText");
+
+      const slowerBtn = document.querySelector("#slowerBtn");
+      const stopBtn = document.querySelector("#stopBtn");
+      const startBtn = document.querySelector("#startBtn");
+      const fasterBtn = document.querySelector("#fasterBtn");
+
+      let speedRPM = 400;
+      let lastRunningRPM = 400;
+      let markerVisible = false;
+      let arStarted = false;
+      let cameraAttemptRunning = false;
+
+      const MIN_RPM = 0;
+      const MAX_RPM = 1200;
+      const STEP_RPM = 100;
+
+      function updateControls() {
+        drum.setAttribute("spin-drum", "rpm", speedRPM);
+        speedReadout.textContent = `${speedRPM} RPM`;
+
+        slowerBtn.disabled = !markerVisible || speedRPM <= MIN_RPM;
+        fasterBtn.disabled = !markerVisible || speedRPM >= MAX_RPM;
+        stopBtn.disabled = !markerVisible || speedRPM === 0;
+        startBtn.disabled = !markerVisible || speedRPM > 0;
+      }
+
+      function humanCameraError(err) {
+        if (!err) return "ไม่สามารถเปิดกล้องได้";
+
+        switch (err.name) {
+          case "NotAllowedError":
+            return "ไม่ได้รับอนุญาตให้ใช้กล้อง กรุณาอนุญาต Camera ในการตั้งค่าเว็บไซต์/เบราว์เซอร์";
+          case "NotFoundError":
+            return "ไม่พบกล้องบนอุปกรณ์นี้";
+          case "NotReadableError":
+            return "กล้องกำลังถูกแอปอื่นใช้งาน หรือระบบไม่สามารถเข้าถึงกล้องได้";
+          case "OverconstrainedError":
+            return "กล้องไม่รองรับค่าที่ร้องขอ";
+          case "SecurityError":
+            return "เบราว์เซอร์บล็อกการใช้กล้องด้วยเหตุผลด้านความปลอดภัย";
+          default:
+            return `${err.name || "CameraError"}: ${err.message || "ไม่สามารถเปิดกล้องได้"}`;
+        }
+      }
+
+      function showFallback(message, err) {
+        fallbackMessage.textContent = message;
+        errorText.textContent = err ? humanCameraError(err) : "";
+        fallback.style.display = "flex";
+      }
+
+      function hideFallback() {
+        fallback.style.display = "none";
+        errorText.textContent = "";
+      }
+
+      function startARJS() {
+        if (arStarted) return;
+        arStarted = true;
+
+        cameraStatus.textContent = "ได้รับสิทธิ์กล้องแล้ว — กำลังเริ่มระบบ AR...";
+        cameraStatus.style.color = "#7CFC98";
+
+        const attachAR = () => {
+          scene.setAttribute(
+            "arjs",
+            "sourceType: webcam; sourceWidth: 1280; sourceHeight: 720; displayWidth: 1280; displayHeight: 720; debugUIEnabled: false; trackingMethod: best;"
+          );
+        };
+
+        if (scene.hasLoaded) {
+          attachAR();
+        } else {
+          scene.addEventListener("loaded", attachAR, { once: true });
+        }
+
+        // หาก AR.js เพิ่ม video แล้ว ให้บังคับคุณสมบัติที่เหมาะกับมือถือ
+        const observer = new MutationObserver(() => {
+          const video = document.querySelector("video");
+          if (video) {
+            video.setAttribute("autoplay", "");
+            video.setAttribute("muted", "");
+            video.setAttribute("playsinline", "");
+            video.muted = true;
+            video.playsInline = true;
+
+            video.play().catch(() => {
+              // Safari/บาง browser อาจยังบล็อก play()
+              // AR.js จะยังพยายามจัดการ stream ของตัวเองต่อ
+            });
+
+            observer.disconnect();
+          }
+        });
+
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true
+        });
+      }
+
+      async function requestCameraAndStartAR() {
+        if (cameraAttemptRunning || arStarted) return;
+        cameraAttemptRunning = true;
+
+        cameraStatus.textContent = "กำลังเปิดกล้องอัตโนมัติ...";
+        cameraStatus.style.color = "#ffd166";
+
+        try {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error(
+              "Camera API ไม่พร้อมใช้งาน หน้านี้ต้องเปิดผ่าน HTTPS หรือ localhost"
+            );
+          }
+
+          if (!window.isSecureContext) {
+            throw new Error(
+              "Camera ต้องใช้ Secure Context: กรุณาเปิดเว็บผ่าน HTTPS (การเปิดด้วย file:// หรือ http://IP อาจใช้กล้องไม่ได้)"
+            );
+          }
+
+          // ขอสิทธิ์กล้องทันทีหลังหน้าโหลด
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          });
+
+          // Preflight สำเร็จ: ปิด stream ชั่วคราว
+          // แล้วให้ AR.js เปิด stream ของตัวเอง
+          stream.getTracks().forEach(track => track.stop());
+
+          hideFallback();
+          startARJS();
+        } catch (err) {
+          console.error("Camera start failed:", err);
+
+          cameraStatus.textContent = "เปิดกล้องอัตโนมัติไม่สำเร็จ";
+          cameraStatus.style.color = "#ff8b8b";
+
+          const msg =
+            !window.isSecureContext
+              ? "หน้านี้ไม่ได้เปิดผ่าน HTTPS จึงไม่สามารถใช้กล้องได้"
+              : "เบราว์เซอร์ไม่ยอมเริ่มกล้องอัตโนมัติ หรือยังไม่ได้รับสิทธิ์กล้อง";
+
+          showFallback(msg, err);
+        } finally {
+          cameraAttemptRunning = false;
+        }
+      }
+
+      marker.addEventListener("markerFound", () => {
+        markerVisible = true;
+        cameraStatus.textContent = "พบ Hiro Marker แล้ว — AR พร้อมใช้งาน";
+        cameraStatus.style.color = "#7CFC98";
+        updateControls();
+      });
+
+      marker.addEventListener("markerLost", () => {
+        markerVisible = false;
+        cameraStatus.textContent = "กล้องทำงานแล้ว — หันกล้องไปที่ Hiro Marker";
+        cameraStatus.style.color = "#ffd166";
+        updateControls();
+      });
+
+      slowerBtn.addEventListener("click", () => {
+        speedRPM = Math.max(MIN_RPM, speedRPM - STEP_RPM);
+        if (speedRPM > 0) lastRunningRPM = speedRPM;
+        updateControls();
+      });
+
+      fasterBtn.addEventListener("click", () => {
+        speedRPM = Math.min(MAX_RPM, speedRPM + STEP_RPM);
+        if (speedRPM > 0) lastRunningRPM = speedRPM;
+        updateControls();
+      });
+
+      stopBtn.addEventListener("click", () => {
+        if (speedRPM > 0) lastRunningRPM = speedRPM;
+        speedRPM = 0;
+        updateControls();
+      });
+
+      startBtn.addEventListener("click", () => {
+        speedRPM = lastRunningRPM || 400;
+        updateControls();
+      });
+
+      openCameraBtn.addEventListener("click", requestCameraAndStartAR);
+
+      updateControls();
+
+      // พยายามเปิดกล้องทันทีโดยไม่ต้องกดปุ่ม
+      if (document.readyState === "loading") {
+        document.addEventListener(
+          "DOMContentLoaded",
+          requestCameraAndStartAR,
+          { once: true }
+        );
+      } else {
+        requestCameraAndStartAR();
+      }
+    })();
+  </script>
+</body>
+</html>
